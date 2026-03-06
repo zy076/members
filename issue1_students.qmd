@@ -53,29 +53,24 @@ font_add("WenQuanYi", "/System/Library/Fonts/wqy-microhei.ttc")
 font_add("SourceHanSerif", "/Users/gaoch/Library/Fonts/SourceHanSerifSC-Regular.otf")
 showtext_auto()
 
-# 从 GitHub API 获取 Issue 1 的评论
-url <- "https://api.github.com/repos/D2RS-2026spring/members/issues/1/comments"
-
-# 获取所有评论（自动分页）
-all_comments <- list()
-page <- 1
-repeat {
-  response <- GET(url, query = list(page = page, per_page = 100))
-  comments <- content(response, as = "parsed")
-  if (length(comments) == 0) break
-  all_comments <- c(all_comments, comments)
-  if (length(comments) < 100) break
-  page <- page + 1
-  Sys.sleep(0.5)  # 避免API限流
+# 使用 gh CLI 获取数据（避免 API 限流）
+# 先检查本地是否有缓存数据
+cache_file <- "issue1_comments.json"
+if (!file.exists(cache_file)) {
+  # 获取 Issue 1 评论数据
+  system("gh api repos/D2RS-2026spring/members/issues/1/comments --paginate > issue1_comments.json")
 }
 
-cat("获取到", length(all_comments), "条评论\n")
+# 读取本地缓存数据
+all_comments <- fromJSON(cache_file, simplifyVector = TRUE)
+
+cat("获取到", nrow(all_comments), "条评论\n")
 ```
 
 ## 数据解析
 
 ```{r}
-# 解析评论数据
+# 解析评论数据 - all_comments 现在是数据框
 parse_student_data <- function(body) {
   # 提取学号 - 匹配各种格式
   student_id <- NA
@@ -112,8 +107,10 @@ parse_student_data <- function(body) {
   )
 }
 
-# 解析所有评论
-student_data <- lapply(all_comments, function(x) {
+# 解析所有评论 - 将数据框转为列表
+comments_list <- split(all_comments, seq(nrow(all_comments)))
+
+student_data <- lapply(comments_list, function(x) {
   parse_student_data(x$body)
 }) %>% bind_rows()
 
@@ -225,7 +222,7 @@ ggplot(head(prefix_count, 10), aes(x = reorder(prefix, n), y = n)) +
 ```{r}
 #| echo: false
 cat("=== 数据质量报告 ===\n")
-cat("总评论数:", length(all_comments), "\n")
+cat("总评论数:", nrow(all_comments), "\n")
 cat("解析成功:", nrow(student_data), "\n")
 cat("有效学号:", sum(student_data$valid_id), "\n")
 cat("有姓名:", sum(!is.na(student_data$name)), "\n")
